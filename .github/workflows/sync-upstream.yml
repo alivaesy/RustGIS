@@ -25,6 +25,7 @@ jobs:
       - name: Fetch upstream branches and tags
         run: |
           git remote add upstream https://github.com/opengeos/RustGIS.git
+          git fetch origin --prune '+refs/heads/*:refs/remotes/origin/*'
           git fetch upstream --prune --tags '+refs/heads/*:refs/remotes/upstream/*'
 
       - name: Fast-forward matching branches without overwriting fork work
@@ -38,8 +39,8 @@ jobs:
             branch="${ref#refs/remotes/upstream/}"
             [ -n "$branch" ] || continue
 
-            if git show-ref --verify --quiet "refs/heads/$branch"; then
-              git checkout -B "$branch" "refs/heads/$branch"
+            if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+              git checkout -B "$branch" "refs/remotes/origin/$branch"
             else
               git checkout -b "$branch" "$ref"
             fi
