@@ -1,0 +1,63 @@
+name: Sync upstream RustGIS
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch upstream branches and tags
+        run: |
+          git remote add upstream https://github.com/opengeos/RustGIS.git
+          git fetch upstream --prune --tags '+refs/heads/*:refs/remotes/upstream/*'
+
+      - name: Fast-forward matching branches without overwriting fork work
+        shell: bash
+        run: |
+          set -uo pipefail
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          failed=0
+
+          while IFS= read -r ref; do
+            branch="${ref#refs/remotes/upstream/}"
+            [ -n "$branch" ] || continue
+
+            if git show-ref --verify --quiet "refs/heads/$branch"; then
+              git checkout -B "$branch" "refs/heads/$branch"
+            else
+              git checkout -b "$branch" "$ref"
+            fi
+
+            if git merge-base --is-ancestor "refs/heads/$branch" "$ref"; then
+              git merge --ff-only "$ref" || failed=1
+              git push origin "refs/heads/$branch:refs/heads/$branch" || failed=1
+            elif git merge-base --is-ancestor "$ref" "refs/heads/$branch"; then
+              echo "Branch $branch is already ahead of upstream; leaving it unchanged."
+            else
+              echo "::warning::Branch $branch has diverged from upstream; not overwriting either side."
+              failed=1
+            fi
+          done < <(git for-each-ref --format='%(refname)' refs/remotes/upstream/)
+
+          git push origin 'refs/tags/*:refs/tags/*' || {
+            echo "::warning::One or more tags could not be pushed (possibly conflicting tags)."
+            failed=1
+          }
+
+          exit "$failed"
